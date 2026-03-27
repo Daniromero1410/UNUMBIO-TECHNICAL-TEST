@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+
+# Investigation scripts (not part of deliverable)
+investigate*.py
+investigate*.png
+investigate*.html
+investigate*.json
+investigation_report.json
+investigation2_report.json
+key_discovery_results.json
+search_response.json
+detail_response.json
+detail_api_*.json
+session_cookies.json
+test_image.*
+inv5_*.html
+inv5_*.json
+inv5_*.png
