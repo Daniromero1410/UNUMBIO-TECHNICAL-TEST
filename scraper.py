@@ -17,12 +17,11 @@ laravel_session cookie, which we carry in the httpx client.
 import asyncio
 import json
 import logging
-import re
 import urllib.parse
 from pathlib import Path
 
 import httpx
-from playwright.async_api import async_playwright, Page, BrowserContext
+from playwright.async_api import async_playwright, BrowserContext
 from tenacity import (
     retry,
     stop_after_attempt,
