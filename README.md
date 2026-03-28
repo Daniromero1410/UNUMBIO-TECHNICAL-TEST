@@ -1,232 +1,289 @@
 # DISCLAIMER: Toda documentacion fue realizada en ingles por motivos de universalidad.
 
-# Cambodia IP — Trademark Scraper
+# UNUMBIO Technical Tests
 
-Async Python scraper that downloads trademark detail pages and images from the Cambodia Intellectual Property portal.
-
-**Target:** [https://digitalip.cambodiaip.gov.kh/en/trademark-search](https://digitalip.cambodiaip.gov.kh/en/trademark-search)
+This repository contains the deliverables for two technical tests assigned by UNUMBIO SpA.
 
 ---
 
-## Requirements
+## Repository Structure
 
-- Python 3.10+
-- pip
-
----
-
-## Installation
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/Daniromero1410/UNUMBIO-TECHNICAL-TEST.git
-cd UNUMBIO-TECHNICAL-TEST
-
-# 2. Install Python dependencies
-pip install -r requirements.txt
-
-# 3. Install the Chromium browser (used by Playwright)
-python -m playwright install chromium
+```
+UNUMBIO-TECHNICAL-TEST/
+├── web-scraping/
+│   ├── scraper.py          # Async scraper (Playwright + httpx)
+│   ├── requirements.txt    # Python dependencies
+│   └── output/             # Downloaded HTML pages and trademark images
+│       ├── KH4963312_1.html
+│       ├── KH4963312_2.jpg
+│       ├── KH5928614_1.html
+│       ├── KH5928614_2.jpg
+│       ├── KH8349819_1.html
+│       └── KH8349819_2.jpg
+└── pdf-processing/
+    ├── pdf_processor.py        # Section B.1 extractor (standard library only)
+    ├── MEMORIA_DESCRIPTIVA.md  # Descriptive report for this test
+    └── output/
+        └── BUL_EM_TM_2024000007_002.json  # 551 extracted trademark records
 ```
 
 ---
 
-## Running the scraper
+## Test 1 — Web Scraping
+
+### Objective
+
+Build an async Python scraper that downloads trademark detail pages and images from the Cambodia Intellectual Property portal for three specific filing numbers:
+
+- `KH/49633/12`
+- `KH/59286/14`
+- `KH/83498/19`
+
+**Target:** https://digitalip.cambodiaip.gov.kh/en/trademark-search
+
+### Technical Stack
+
+| Component | Technology | Reason |
+|-----------|-----------|--------|
+| Browser automation | Playwright (async) | Session initialization and SPA rendering |
+| HTTP client | httpx (async) | Direct API calls and image downloads without browser overhead |
+| Retry logic | tenacity | Exponential backoff on transient network failures |
+| Language | Python 3.10+ | Required by the specification |
+
+### Installation
+
+```bash
+cd web-scraping
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Install the Chromium browser (used by Playwright)
+python -m playwright install chromium
+```
+
+### Running the Scraper
 
 ```bash
 python scraper.py
 ```
 
-Files are saved to `output/`:
+Files are saved to `web-scraping/output/`:
+
+| File | Content |
+|------|---------|
+| `KH4963312_1.html` | Rendered detail page for KH/49633/12 (MINGFAI) |
+| `KH4963312_2.jpg` | Trademark image for KH/49633/12 |
+| `KH5928614_1.html` | Rendered detail page for KH/59286/14 (Eesatto) |
+| `KH5928614_2.jpg` | Trademark image for KH/59286/14 |
+| `KH8349819_1.html` | Rendered detail page for KH/83498/19 (FORCE) |
+| `KH8349819_2.jpg` | Trademark image for KH/83498/19 |
+
+### Thought Process
+
+#### 1. Initial Assessment
+
+The first step was identifying what kind of site we are dealing with. A simple `requests.get()` on the search URL returned only the SPA shell — no trademark data. The `<head>` tags confirmed **Nuxt.js / Vue.js**, meaning all content is rendered client-side by JavaScript. Standard HTML parsing was ruled out immediately.
+
+Key observations:
+- No CAPTCHA present.
+- No login required for search.
+- Backend framework: **Laravel** (identified from cookie names).
+
+#### 2. Network Interception
+
+The correct approach for an SPA is to run a real browser with network interception to capture actual API calls. I automated this with Playwright's request/response listeners.
+
+Endpoints captured on page load:
 
 ```
-output/
-  KH4963312_1.html    # Detail page — KH/49633/12  (MINGFAI)
-  KH4963312_2.jpg     # Trademark image — KH/49633/12
-  KH5928614_1.html    # Detail page — KH/59286/14  (Eesatto)
-  KH5928614_2.jpg     # Trademark image — KH/59286/14
-  KH8349819_1.html    # Detail page — KH/83498/19  (FORCE)
-  KH8349819_2.jpg     # Trademark image — KH/83498/19
+GET  /api/v1/web/get-setting
+POST /api/v1/web/trademark-search
+GET  /trademark-logo/{id}?type=ts_logo_thumbnail
 ```
 
----
+Session cookies set by Laravel:
+- `XSRF-TOKEN` — must be forwarded as `X-XSRF-TOKEN` request header on all POST requests (419 without it).
+- `laravel_session` — required for image downloads (returns JSON error without it).
 
-## Technical Stack
+#### 3. API Key Discovery
 
-| Component          | Technology                  | Reason                                               |
-|--------------------|-----------------------------|------------------------------------------------------|
-| Browser automation | Playwright (async)          | Session initialization + SPA rendering              |
-| HTTP client        | httpx (async)               | Direct API calls + image downloads (no browser)     |
-| Retry logic        | tenacity                    | Exponential backoff on transient network failures   |
-| Language           | Python 3.10+                | Required by the technical specification             |
-
----
-
-## Thought Process
-
-### 1. Initial Assessment — What kind of site is this?
-
-The first step was understanding what we're dealing with before writing a single line of scraping code.
-
-A quick inspection of the page source (`requests.get()`) revealed only the SPA shell — no trademark data. The `<head>` showed Nuxt.js meta tags, confirming this is a **Vue.js/Nuxt.js Single Page Application** rendered entirely client-side. That ruled out simple HTML parsing.
-
-**Key observations:**
-- The page title and `data-n-head` attributes confirmed Nuxt.js
-- No CAPTCHA present
-- No login required for search
-- Backend framework: **Laravel** (identified later from cookie names)
-
-### 2. Network Interception — Finding the Real API
-
-The correct approach for any SPA is to open a non-headless browser, watch the DevTools Network tab, and capture what actually happens. I automated this with Playwright's request/response interceptors.
-
-**What I captured on page load:**
+The auto-fired search used `"key": "all"`. I tested 10 candidate keys to find which one targets the filing number field:
 
 ```
-GET  /api/v1/web/get-setting         → App configuration (feature flags, icons)
-POST /api/v1/web/trademark-search    → Main search endpoint (fires automatically on load)
-GET  /trademark-logo/{id}?type=ts_logo_thumbnail  → Logo images
+filing_number    -> correct result (MINGFAI for KH/49633/12)
+filingNumber     -> 0 results
+all              -> matches all fields
+registrationNumber, applicationNumber, number, ... -> 0 results
 ```
 
-**The search POST body (auto-fired by the SPA on load):**
-```json
-{
-  "data": {
-    "page": 1,
-    "perPage": 20,
-    "search": { "key": "all", "value": "" },
-    "filter": { "province": [], "country": [], "status": [], ... },
-    "advanceSearch": [{ "type": "all", "strategy": "contains_word", ... }],
-    "isAdvanceSearch": false,
-    "dateOption": ""
-  }
-}
-```
+Winner: `"key": "filing_number"`.
 
-**Session cookies set by Laravel:**
-- `XSRF-TOKEN` — CSRF protection, must be sent as `X-XSRF-TOKEN` request header
-- `laravel_session` — Session identifier, required for image access
+#### 4. Image Endpoint
 
-**Critical discovery:** The `X-XSRF-TOKEN` header is **required** for all POST requests. Without it the server returns 419 (CSRF token mismatch). Without `laravel_session`, image requests return a JSON error instead of the image binary.
-
-### 3. API Key Discovery — How to search by filing number
-
-The initial auto-search used `"key": "all"`. I needed to find which key value targets the filing number field specifically.
-
-I tested 10 candidate keys via direct `httpx` calls (no browser needed at this point):
+Two variants exist:
 
 ```
-filingNumber        → 0 results
-filing_number       → ✅ returns MINGFAI for KH/49633/12
-applicationNumber   → 0 results
-application_number  → 0 results
-registrationNumber  → 0 results
-all                 → ✅ returns MINGFAI (searches all fields)
-number              → 0 results
-filing              → 0 results
+GET /trademark-logo/{id}?type=ts_logo          -> returns application/json (not an image)
+GET /trademark-logo/{id}?type=ts_logo_thumbnail -> returns image/jpeg
 ```
 
-**Winner: `"key": "filing_number"`** — returns an exact match for the filing number field.
+The `_thumbnail` variant is the one that returns binary image data. Without the `laravel_session` cookie the endpoint returns a JSON error regardless.
 
-**Search response structure (key fields):**
-```json
-{
-  "id": "KHT201249633",
-  "title": "MINGFAI",
-  "logo": true,
-  "owner": "Ming Fai Enterprise International Co., Ltd.",
-  "number": "KH/49633/12 (31-12-2012)",
-  "status": "Inactive (30-06-2023)",
-  "application_number": "KHT201249633",
-  "registration_number": "N/A",
-  "type_of_mark": "Combined",
-  "application_date": "31-12-2012",
-  "nice_class": "35"
-}
-```
+#### 5. Detail Page
 
-**Trademark ID format:** `KHT` + `{4-digit year}` + `{serial number}`
-- `KH/49633/12` → `KHT201249633`
-- `KH/59286/14` → `KHT201459286`
-- `KH/83498/19` → `KHT201983498`
+There is no dedicated detail page URL. The SPA renders trademark details within the search results view based on URL query parameters. I navigated Playwright to the search URL with the filing number as the query string and waited for the SPA to render. That rendered HTML is saved as the detail page.
 
-### 4. Image Endpoint — The Cookie Requirement
-
-Confirmed via testing with and without cookies:
+#### 6. Architecture Decision
 
 ```
-GET /trademark-logo/KHT201249633?type=ts_logo_thumbnail
-  → WITH laravel_session:    200 image/jpeg (3,746 bytes) ✅
-  → WITHOUT laravel_session: 200 application/json (error payload) ✗
+Operations that require the browser:
+  - Session initialization (cookies are set on first page visit)
+  - Per-trademark detail page HTML (JavaScript rendering required)
+
+Operations that do not require the browser:
+  - Trademark search (direct POST to REST API with session cookies)
+  - Image download (direct GET with session cookie)
 ```
 
-Also discovered: `?type=ts_logo` (without `_thumbnail`) returns JSON, not an image. The `ts_logo_thumbnail` variant is the one that returns binary image data.
+Final architecture: one shared Playwright instance launched once for session extraction, reused for per-trademark HTML rendering. All HTTP calls (search, image) go through a shared async httpx client. This minimizes browser usage and keeps the scraper fast.
 
-### 5. Detail Page — How the SPA presents detail information
-
-There is **no dedicated detail page URL**. The SPA presents trademark detail within the search results page. When you navigate with search parameters in the URL, the SPA reads them, issues the corresponding POST to the search API, and renders the results inline.
-
-I tested several potential detail URL patterns (e.g., `/en/trademark/{id}`, `/api/v1/web/trademark/{id}`) — all returned 404 or rendered only the generic SPA shell without trademark-specific data.
-
-**Approach:** Navigate Playwright to the search URL with the filing number as the query parameter. The SPA fires the search API automatically and renders the result. That rendered HTML is the detail page.
-
-### 6. Architecture Decision — What needs a browser vs. pure HTTP
-
-This is the core of the performance question. Every browser operation costs ~10-50x more than an HTTP request in memory and CPU.
-
-```
-Operations that NEED the browser:
-  ✓ Session initialization (laravel_session + XSRF-TOKEN are set on first page visit)
-  ✓ Detail page HTML (SPA renders from JavaScript — static GET returns a shell)
-
-Operations that do NOT need the browser:
-  ✓ Trademark search (pure POST to REST API with session cookies)
-  ✓ Image download (pure GET with laravel_session cookie)
-```
-
-**Final architecture:**
-
-```
-Playwright (headless, shared instance — launched once):
-  ├── [Once]          Load search page → extract session cookies
-  └── [Per trademark] Navigate to search URL → wait for render → save HTML
-
-httpx (async, shared client — all HTTP-only operations):
-  ├── [Per trademark] POST /api/v1/web/trademark-search
-  └── [Per trademark] GET  /trademark-logo/{id}?type=ts_logo_thumbnail
-```
-
-By sharing one browser context across all trademarks, we pay the browser startup cost only once. Each per-trademark browser operation is limited to a single page navigation.
-
-### 7. Error Handling Strategy
+#### 7. Error Handling
 
 | Scenario | Behavior |
-|----------|----------|
-| Trademark not found | Log warning, skip to next (do not crash) |
+|----------|---------|
+| Trademark not found | Log warning and continue |
 | Network timeout | tenacity retries up to 3 times with exponential backoff |
-| Image unavailable (`logo: false`) | Skip image download, log and continue |
+| Image unavailable | Skip download and log |
 | Image endpoint returns JSON | Detected by content-type check, treated as unavailable |
-| CSRF mismatch (419) | httpx.raise_for_status() triggers tenacity retry |
+| CSRF mismatch (419) | `raise_for_status()` triggers tenacity retry |
 
----
+### Output Evidence
 
-## Output Evidence
+| Filing Number | Trademark | Owner | Status |
+|---------------|-----------|-------|--------|
+| KH/49633/12 | MINGFAI | Ming Fai Enterprise International Co., Ltd. | Inactive |
+| KH/59286/14 | Eesatto | DIAMOND POINT Sdn Bhd | Inactive |
+| KH/83498/19 | FORCE | TIFORCE INTERNATIONAL CO., LTD. | Active |
 
-All 6 output files are included in this repository as proof of successful execution:
-
-| # | Filing Number | Trademark | Owner | Status |
-|---|---------------|-----------|-------|--------|
-| 1 | KH/49633/12 | MINGFAI | Ming Fai Enterprise International Co., Ltd. | Inactive |
-| 2 | KH/59286/14 | Eesatto | DIAMOND POINT Sdn Bhd | Inactive |
-| 3 | KH/83498/19 | FORCE | TIFORCE INTERNATIONAL CO., LTD. | Active |
-
----
-
-## Time Invested
+### Time Invested
 
 | Phase | Description | Time |
 |-------|-------------|------|
 | Site investigation | Network interception, API key discovery, cookie analysis | ~1.5 h |
-| Scraper implementation | Architecture, async code, error handling, debugging | ~1 h |
-| Documentation & README | README, code comments, repository setup | ~30 min |
+| Implementation | Architecture, async code, error handling, debugging | ~1 h |
+| Documentation | README, code comments, repository setup | ~30 min |
 | **Total** | | **~3 hours** |
+
+---
+
+## Test 2 — PDF Processing
+
+### Objective
+
+Write a Python script that processes `BUL_EM_TM_2024000007_001.json` (coordinates extracted from a trademark bulletin by PDFPlumber) to extract exclusively the Section B.1 trademark records and produce `BUL_EM_TM_2024000007_002.json`.
+
+### Technical Stack
+
+| Component | Technology | Reason |
+|-----------|-----------|--------|
+| JSON parsing | `json` (stdlib) | Standard library, no external dependencies needed |
+| Pattern matching | `re` (stdlib) | Section heading detection via regex |
+| Language | Python 3.10+ | Required by the specification |
+
+No third-party libraries are required. The input JSON already contains all coordinate data.
+
+### Running the Script
+
+```bash
+cd pdf-processing
+python pdf_processor.py
+```
+
+Output is written to `pdf-processing/output/BUL_EM_TM_2024000007_002.json`.
+
+### Output Format
+
+```json
+{
+  "B": {
+    "1": [
+      {
+        "_PAGE": 89,
+        "111": "018386578",
+        "151": "10/01/2024",
+        "450": "11/01/2024",
+        "210": "018386578",
+        "400": ["03/10/2023 - 2023/187 - A.1"]
+      },
+      ...
+    ]
+  }
+}
+```
+
+Field types:
+- `_PAGE`: `int` — page number where the record starts.
+- `400`: `list[str]` — one entry per prior filing line.
+- All other INID fields: `str`.
+
+### Thought Process
+
+#### 1. Input Analysis
+
+Before writing code I inspected both the reference bulletin (`BUL_EM_TM_2024000001`) and the target bulletin side by side (PDF and JSON) to map the coordinate system.
+
+Key measurements:
+
+| Zone | x0 range |
+|------|---------|
+| Left column INID gutter | 50 - 80 |
+| Left column data | 86 - 235 |
+| Centre gutter (section headings) | 250 - 305 |
+| Right column INID gutter | 305 - 330 |
+| Right column data | 336 - 540 |
+| Far-right edge (headers/footers) | > 540 |
+
+Vertical exclusion zones: `top < 60` (page header) and `top > 800` (page footer).
+
+#### 2. Section Filtering
+
+The input file contains 166 pages covering the entire bulletin. Section B.1 is identified dynamically by scanning for centre-gutter elements matching the regex `^B\.1\.?$` (start) and `^B\.[2-9]\.?$` (end). This yields pages 89-122 without hardcoding any page numbers.
+
+#### 3. Column Reconstruction
+
+PDFPlumber emits all text boxes as a flat list per page. Naively sorting by `top` would interleave left and right columns. The solution is a hard split at `x0 = 250`: elements below the threshold go to the left column list, the rest to the right column list. Each list is then sorted and processed independently.
+
+Reading order: left column top-to-bottom, then right column top-to-bottom (standard newspaper layout).
+
+#### 4. INID Code Detection
+
+INID codes (111, 151, 210, 400, 450) match `^\d{3}$` — but so do page numbers and data fragments. To disambiguate, a coordinate filter is applied: a 3-digit token is an INID code only when its x0 falls in a known gutter strip (left: 50-80, right: 305-330). Any 3-digit number outside those strips is treated as data.
+
+#### 5. Cross-Column and Cross-Page Splits
+
+Records can begin at the bottom of the left column and continue at the top of the right column. They can also span page boundaries. No special handling is required: because the reading order is maintained as a single linear stream across columns and pages, the `current` record dict simply continues accumulating fields. A record is only flushed when the next INID 111 is encountered.
+
+#### 6. Field Type Handling
+
+INID 400 (prior filing history) appears once per prior application and is stored as a list. All other INID fields appear exactly once per record and are stored as strings. This matches the reference schema exactly.
+
+### Output Validation
+
+```
+Total records : 551
+Pages covered : 89-122
+Missing fields : 0
+Type errors    : 0
+Records per page : 11-17 (consistent with two-column A4 layout)
+```
+
+### Time Invested
+
+| Phase | Description | Time |
+|-------|-------------|------|
+| JSON structure analysis | Coordinate mapping, column geometry, INID gutter zones | ~45 min |
+| Implementation | Section detection, column split, record assembly | ~1 h |
+| Validation | Output comparison against reference schema, type checks | ~15 min |
+| Documentation | Descriptive report and README | ~30 min |
+| **Total** | | **~2.5 hours** |
