@@ -6,6 +6,12 @@ __pycache__/
 venv/
 .env
 
+# Large input files provided by the company (not committed to keep repo lightweight)
+BUL_EM_TM_*_000.pdf
+BUL_EM_TM_*_001.json
+BUL_EM_TM_2024000001_002.json
+UNUMBIO*.pdf
+
 # Investigation scripts (not part of deliverable)
 investigate*.py
 investigate*.png
